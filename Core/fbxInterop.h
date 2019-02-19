@@ -14,7 +14,7 @@ extern "C" {
 	FBXINTEROP_API Mesh* loadMesh(int index, Vertex* vertices, int numv, unsigned short* indices, int numi, unsigned short* iBoneList, int iBoneListSize);
 	FBXINTEROP_API void unloadMesh(Mesh* m);
 
-	FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
+	FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 									unsigned char* skeleton, int skeletonSize,
 									unsigned char* animation, int animationSize, const char** animNames,
 									int* boneMap, int mapLength,

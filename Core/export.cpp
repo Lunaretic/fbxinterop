@@ -7,9 +7,9 @@
 #include <string>
 #include <sstream>
 #include <vector>
-#include <algorithm>    // copy
-#include <iterator>     // back_inserter
-#include <regex>        // regex, sregex_token_iterator
+#include <algorithm>
+#include <iterator>
+#include <regex>
 
 // HAVOK stuff now
 #include <Common/Base/hkBase.h>
@@ -66,7 +66,7 @@
 #include "FBXCommon.h" // samples common path, todo better way
 #include "fbxInterop.h"
 
-// FBX Function prototypes.
+// FBX Function prototypes
 bool CreateScene(FbxManager* pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene); // create FBX scene
 FbxNode* CreateMesh(FbxManager* pSdkManager, FbxScene* pScene, Mesh* m, std::string);
 void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** meshes, FbxNode** fbxMeshes, int meshCount, FbxNode* skele);
@@ -102,7 +102,6 @@ vector<float> vector4ToFloats(Vector4 v)
 	return arr;
 }
 
-// global so we can access this later
 class hkLoader* m_loader;
 class hkaSkeleton* m_skeleton;
 class hkaAnimation* m_animation;
@@ -131,7 +130,7 @@ FBXINTEROP_API void unloadMesh(Mesh* m)
 	delete m;
 }
 
-FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
+FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 								unsigned char* skeleton, int skeletonSize,
 								unsigned char* animation, int animationSize, const char** animNames,
 								int* map, int mLength,
@@ -162,6 +161,8 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 			m_skeleton = ac->m_skeletons[0];
 		}
 
+		animationNames = nullptr;
+
 		if (bAnimationGiven)
 		{
 			{
@@ -171,7 +172,6 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 				auto ac = reinterpret_cast<hkaAnimationContainer*>(container->findObjectByType(hkaAnimationContainerClass.getName()));
 
 				HK_ASSERT2(0x27343435, ac && (ac->m_animations.getSize() > 0), "No animation loaded");
-				std::cout << ac->m_animations.getSize() << " animations found!\n";
 				numAnims = ac->m_animations.getSize();
 
 				animationNames = new char*[numAnims];
@@ -187,7 +187,6 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 				}
 
 				HK_ASSERT2(0x27343435, ac && (ac->m_bindings.getSize() > 0), "No binding loaded");
-				std::cout << ac->m_bindings.getSize() << " bindings found!\n";
 				numBindings = ac->m_bindings.getSize();
 				
 				bindings = new hkaAnimationBinding*[numBindings];
@@ -198,8 +197,8 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 	}
 
 	// Prepare FBX stuff
-	FbxManager* lSdkManager = NULL;
-	FbxScene* lScene = NULL;
+	FbxManager* lSdkManager = nullptr;
+	FbxScene* lScene = nullptr;
 
 	InitializeSdkObjects(lSdkManager, lScene);
 
@@ -210,11 +209,10 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 	{
 		FBXSDK_printf("\n\nAn error occurred while creating the scene...\n");
 		DestroySdkObjects(lSdkManager, lResult);
-		return;
+		return 1;
 	}
 
 	// Save the scene to FBX.
-	// todo: add binary/ascii support
 	// 0 is binary
 	lResult = SaveScene(lSdkManager, lScene, filename, mode);
 
@@ -222,7 +220,7 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 	{
 		FBXSDK_printf("\n\nAn error occurred while saving the scene...\n");
 		DestroySdkObjects(lSdkManager, lResult);
-		return;
+		return 1;
 	}
 
 	//Cleanup
@@ -234,7 +232,7 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 	hkBaseSystem::quit();
 	hkMemoryInitUtil::quit();
 
-	//todo return int for success
+	return 0;
 }
 
 bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene)
@@ -495,7 +493,6 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 			lSkeletonLimbNodeAttribute1->SetSkeletonType(FbxSkeleton::eLimbNode);
 
 		lSkeletonLimbNodeAttribute1->Size.Set(1.0);
-		// std::string baseJointName = std::string(bone.m_name) + std::string(" base joint");
 		std::string baseJointName = std::string(bone.m_name);
 		FbxNode* BaseJoint = FbxNode::Create(pScene, baseJointName.c_str());
 		BaseJoint->SetNodeAttribute(lSkeletonLimbNodeAttribute1);
@@ -592,7 +589,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		BoneIDContainer = new int[numBones];
 
 		// store IDs once to cut down process time
-		// TODO utilize for skeleton code aswell
 		for (int y = 0; y < numBones; y++)
 		{
 			const char* CurrentBoneName = m_skeleton->m_bones[y].m_name;
@@ -637,7 +633,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 				FbxAnimCurve* lCurve_Scal_Y = CurrentJointNode->LclScaling.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Y, pCreate);
 				FbxAnimCurve* lCurve_Scal_Z = CurrentJointNode->LclScaling.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Z, pCreate);
 
-				// hkQsTransform& transform = transformOut[i];
 				hkQsTransform transform = transforms[i];
 				const hkVector4f anim_pos = transform.getTranslation();
 				const hkQuaternion anim_rot = transform.getRotation();
@@ -728,29 +723,10 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 #undef HK_FEATURE_PRODUCT_SIMULATION
 #undef HK_FEATURE_PRODUCT_PHYSICS
 
-// We are using serialization, so we need ReflectedClasses.
-// The objects are being saved and then loaded immediately so we know the version of the saved data is the same 
-// as the version the application is linked with. Because of this we don't need RegisterVersionPatches or SerializeDeprecatedPre700.
-// If the demo was reading content saved from a previous version of the Havok content tools (common in real world Applications) 
-// RegisterVersionPatches and perhaps SerializeDeprecatedPre700 are needed.
-
-//#define HK_EXCLUDE_FEATURE_SerializeDeprecatedPre700
-
 // We can also restrict the compatibility to files created with the current version only using HK_SERIALIZE_MIN_COMPATIBLE_VERSION.
 // If we wanted to have compatibility with at most version 650b1 we could have used something like:
 // #define HK_SERIALIZE_MIN_COMPATIBLE_VERSION 650b1.
-#define HK_SERIALIZE_MIN_COMPATIBLE_VERSION 201130r1 //FFXIV uses 201130r1
-
-//#define HK_EXCLUDE_FEATURE_RegisterVersionPatches
-//#define HK_EXCLUDE_FEATURE_RegisterReflectedClasses
-//#define HK_EXCLUDE_FEATURE_MemoryTracker
-
-// We also need to exclude the other common libraries referenced in Source\Common\Serialize\Classlist\hkCommonClasses.h
-// You may be linking these libraries in your application, in which case you will not need these #defines.
-//#define HK_EXCLUDE_LIBRARY_hkcdCollide
-//#define HK_EXCLUDE_LIBRARY_hkcdInternal
-//#define HK_EXCLUDE_LIBRARY_hkSceneData
-//#define HK_EXCLUDE_LIBRARY_hkGeometryUtilities
+#define HK_SERIALIZE_MIN_COMPATIBLE_VERSION 201130r1 //FFXIV is compatible with 201130r1
 
 #include <Common/Base/Config/hkProductFeatures.cxx>
 

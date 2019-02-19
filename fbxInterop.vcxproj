@@ -43,7 +43,7 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v110</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -65,6 +65,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
+    <IncludePath>$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -90,15 +91,15 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>_WINDOWS;WIN32;_WIN32;NDEBUG;_CONSOLE;_ALLOW_ITERATOR_DEBUG_LEVEL_MISMATCH;HK_CONFIG_SIMD=2;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(HAVOK_SDK_ROOT)/Source;$(FBX_SDK_ROOT)/include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_WINDOWS;WIN32;_WIN32;NDEBUG;_CONSOLE;_ALLOW_ITERATOR_DEBUG_LEVEL_MISMATCH;HK_CONFIG_SIMD=2;FBXINTEROP_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(HAVOK_SDK_ROOT)/Source;$(FBX_SDK_ROOT)/include;C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>$(HAVOK_SDK_ROOT)/Lib/win32_vs2012_win7_noSimd/release;$(FBX_SDK_ROOT)/lib\vs2012\x86\release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(HAVOK_SDK_ROOT)/Lib/win32_vs2012_win7_noSimd/release;$(FBX_SDK_ROOT)/lib\vs2012\x86\release;C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>hkBase.lib;hkSerialize.lib;hkSceneData.lib;hkVisualize.lib;hkInternal.lib;hkImageUtilities.lib;hkaAnimation.lib;hkaInternal.lib;hkaPhysics2012Bridge.lib;hkcdCollide.lib;hkcdInternal.lib;hkGeometryUtilities.lib;hkCompat.lib;libfbxsdk.lib</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
