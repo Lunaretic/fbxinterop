@@ -12,23 +12,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Core\FBXCommon.cxx" />
-    <ClCompile Include="Core\hkAssetManagementUtil.cpp" />
     <ClCompile Include="Core\export.cpp" />
-	<ClCompile Include="Core\Mesh.cpp" />
+    <ClCompile Include="Core\Mesh.cpp" />
     <ClCompile Include="Core\stdafx.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Core\EulerAngles.h" />
     <ClInclude Include="Core\FBXCommon.h" />
     <ClInclude Include="Core\fbxInterop.h" />
-    <ClInclude Include="Core\hkAssetManagementUtil.h" />
     <ClInclude Include="Core\MathHelper.h" />
     <ClInclude Include="Core\stdafx.h" />
     <ClInclude Include="Core\targetver.h" />
-	<ClInclude Include="Core\Mesh.h" />
-	<ClInclude Include="Core\Transform.h" />
-	<ClInclude Include="Core\Vector4.h" />
-	<ClInclude Include="Core\Vertex.h" />
+    <ClInclude Include="Core\Mesh.h" />
+    <ClInclude Include="Core\Transform.h" />
+    <ClInclude Include="Core\Vector4.h" />
+    <ClInclude Include="Core\Vertex.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{ABD56143-77DF-4438-BA81-5D72B33FA715}</ProjectGuid>

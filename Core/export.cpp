@@ -72,11 +72,9 @@ FbxNode* CreateMesh(FbxManager* pSdkManager, FbxScene* pScene, Mesh* m, std::str
 void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** meshes, FbxNode** fbxMeshes, int meshCount, FbxNode* skele);
 FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* pName); // create the actual skeleton
 void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot); // add animation to it
-void AnimateSkeletonOld(FbxScene* pScene, FbxNode* pSkeletonRoot); // add animation to it
 vector<unsigned char> uintToBytes(unsigned int u);
 
 void PlatformInit();
-void PlatformFileSystemInit();
 
 static void HK_CALL errorReport(const char* msg, void* userContext)
 {
@@ -119,6 +117,8 @@ int numBindings;
 int* boneMap;
 int mapLength;
 
+char** animationNames;
+
 bool bAnimationGiven = false;
 
 FBXINTEROP_API Mesh* loadMesh(int index, Vertex* vertices, int numv, unsigned short* indices, int numi, unsigned short* iBoneList, int iBoneListSize)
@@ -133,13 +133,10 @@ FBXINTEROP_API void unloadMesh(Mesh* m)
 
 FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 								unsigned char* skeleton, int skeletonSize,
-								unsigned char* animation, int animationSize,
+								unsigned char* animation, int animationSize, const char** animNames,
 								int* map, int mLength,
-								const char* filename)
+								const char* filename, int mode)
 {
-	std::cout << numMeshes << " meshes!\n";
-	std::cout << "Filename is " << filename << "!\n";
-
 	bAnimationGiven = animationSize > 0;
 
 	boneMap = new int[mLength];
@@ -152,9 +149,6 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 	// Need to have memory allocated for the solver. Allocate 1mb for it.
 	hkMemoryRouter* memoryRouter = hkMemoryInitUtil::initDefault(hkMallocAllocator::m_defaultMallocAllocator, hkMemorySystem::FrameInfo(1024 * 1024));
 	hkBaseSystem::init(memoryRouter, errorReport);
-
-	// Set up platform-specific file system info.
-	PlatformFileSystemInit();
 	{
 		// load skeleton first!
 		m_loader = new hkLoader();
@@ -168,8 +162,6 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 			m_skeleton = ac->m_skeletons[0];
 		}
 
-		// if we do not have any animation specified proceed to exporting the skeleton data otherwise use animation
-		// Get the animation and the binding
 		if (bAnimationGiven)
 		{
 			{
@@ -182,9 +174,17 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 				std::cout << ac->m_animations.getSize() << " animations found!\n";
 				numAnims = ac->m_animations.getSize();
 
+				animationNames = new char*[numAnims];
+				
 				animations = new hkaAnimation*[numAnims];
 				for (int i = 0 ; i < numAnims; i++)
+				{
 					animations[i] = ac->m_animations[i];
+
+					// cpp strings are hard
+					animationNames[i] = new char[strlen(animNames[i]) * sizeof(char) + 1];
+					strncpy_s(animationNames[i], strlen(animNames[i]) * sizeof(char) + 1, animNames[i], _TRUNCATE);
+				}
 
 				HK_ASSERT2(0x27343435, ac && (ac->m_bindings.getSize() > 0), "No binding loaded");
 				std::cout << ac->m_bindings.getSize() << " bindings found!\n";
@@ -216,7 +216,7 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 	// Save the scene to FBX.
 	// todo: add binary/ascii support
 	// 0 is binary
-	lResult = SaveScene(lSdkManager, lScene, filename, 1);
+	lResult = SaveScene(lSdkManager, lScene, filename, mode);
 
 	if (!lResult)
 	{
@@ -227,6 +227,7 @@ FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 
 	//Cleanup
 	delete[] boneMap;
+	delete[] animationNames;
 
 	DestroySdkObjects(lSdkManager, lResult);
 
@@ -363,10 +364,6 @@ FbxNode* CreateMesh(FbxManager *pSdkManager, FbxScene* pScene, Mesh* m, std::str
 		
 		fbxMesh->SetControlPointAt(pos, norm, i);
 
-		// UV?
-
-		//TODO: check uvs work, maybe add anim names, look into progress bar for export
-		// add proper file dialog
 		uvElement->GetDirectArray().Add(FbxVector2(m->vertices[i].UV.X, m->vertices[i].UV.Y * -1));
 
 		// Color
@@ -550,15 +547,6 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 	return pScene->GetRootNode();
 }
 
-int reverseBoneMap(int f)
-{
-	for (int i = 0; i < mapLength; i++)
-	{
-		if (boneMap[i] == f)
-			return i;
-	}
-}
-
 // Create animation stack.
 void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 {
@@ -568,8 +556,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		FbxTime lTime;
 		int lKeyIndex = 0;
 
-		//TODO: send in anim names in interop
-		lAnimStackName = std::string("Animation " + std::to_string(a + 1)).c_str();
+		lAnimStackName = animationNames[a];
 		FbxAnimStack* lAnimStack = FbxAnimStack::Create(pScene, lAnimStackName);
 
 		// The animation nodes can only exist on AnimLayers therefore it is mandatory to
@@ -580,7 +567,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 
 		// havok related animation stuff now
 		const int numBones = m_skeleton->m_bones.getSize();
-		// const int numBones = mapLength;
 
 		int FrameNumber = animations[a]->getNumOriginalFrames();
 		int TrackNumber = animations[a]->m_numberOfTransformTracks;
@@ -588,20 +574,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 
 		float AnimDuration = animations[a]->m_duration;
 		hkReal incrFrame = animations[a]->m_duration / (hkReal)(FrameNumber - 1);
-		/* don't need this right now
-		if (FloatNumber == 0)
-		{
-		FBXSDK_printf("\nERROR: Number of tracks is zero inside animation! Aborting.\n");
-		return;
-		}
-		*/
-		// dont know how to deal with this
-		// TODO: better way to detect this?
-		// if (TrackNumber > numBones)
-		// {
-		// 	FBXSDK_printf("\nERROR: Number of tracks is not equal to bones\n");
-		// 	return;
-		// }
 
 		hkLocalArray<float> floatsOut(FloatNumber);
 		hkLocalArray<hkQsTransform> transformOut(TrackNumber);
@@ -623,10 +595,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		// TODO utilize for skeleton code aswell
 		for (int y = 0; y < numBones; y++)
 		{
-			// int z = boneMap[y];
-			int z = y;
-			// int z = reverseBoneMap(y);
-			const char* CurrentBoneName = m_skeleton->m_bones[z].m_name;
+			const char* CurrentBoneName = m_skeleton->m_bones[y].m_name;
 			std::string CurBoneNameString = CurrentBoneName;
 			BoneIDContainer[y] = GetNodeIDByName(pScene, CurrentBoneName);
 		}
@@ -641,10 +610,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		// loop through keyframes
 		for (int iFrame = 0; iFrame<FrameNumber; ++iFrame, time += incrFrame)
 		{
-			// original
-			// animations[a]->samplePartialTracks(time, TrackNumber, transformOut.begin(), FloatNumber, floatsOut.begin());
-			// hkaSkeletonUtils::normalizeRotations(transformOut.begin(), TrackNumber);
-
 			control->setLocalTime(time);
 			animatedSkeleton->sampleAndCombineAnimations(pose.accessUnsyncedPoseModelSpace().begin(), pose.getFloatSlotValues().begin());
 			const hkQsTransform* transforms = pose.getSyncedPoseModelSpace().begin();
@@ -653,8 +618,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 			// loop through animated bones
 			for (int i = 0; i < TrackNumber; ++i)
 			{
-				//const char* CurrentBoneName = m_skeleton->m_bones[i].m_name;
-				//std::string CurBoneNameString = CurrentBoneName;
 				FbxNode* CurrentJointNode = pScene->GetNode(BoneIDContainer[i]);
 
 				// create curves on frame zero otherwise just get them

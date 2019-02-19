@@ -16,7 +16,7 @@ extern "C" {
 
 	FBXINTEROP_API void exportFbx(Mesh** meshes, int numMeshes,
 									unsigned char* skeleton, int skeletonSize,
-									unsigned char* animation, int animationSize,
+									unsigned char* animation, int animationSize, const char** animNames,
 									int* boneMap, int mapLength,
-									const char* filename);
+									const char* filename, int mode);
 }
