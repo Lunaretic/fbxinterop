@@ -1,5 +1,4 @@
 # fbxInterop
-# Note: This is currently in an unfinished, non-production state
 ---------------------
 Setup
 ---
