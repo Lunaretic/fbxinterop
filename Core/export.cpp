@@ -111,7 +111,6 @@ class hkaAnimation** animations;
 class hkaAnimationBinding** bindings;
 
 int numAnims;
-int numBindings;
 
 int* boneMap;
 int mapLength;
@@ -119,6 +118,16 @@ int mapLength;
 char** animationNames;
 
 bool bAnimationGiven = false;
+
+FBXINTEROP_API Animation* loadAnimation(int count, int length, unsigned char* data, char** names)
+{
+	return new Animation(count, length, data, names);
+}
+
+FBXINTEROP_API void unloadAnimation(Animation* a)
+{
+	delete a;
+}
 
 FBXINTEROP_API Mesh* loadMesh(int index, Vertex* vertices, int numv, unsigned short* indices, int numi, unsigned short* iBoneList, int iBoneListSize)
 {
@@ -132,11 +141,11 @@ FBXINTEROP_API void unloadMesh(Mesh* m)
 
 FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 								unsigned char* skeleton, int skeletonSize,
-								unsigned char* animation, int animationSize, const char** animNames,
+								Animation** anims, int totalPaps,
 								int* map, int mLength,
 								const char* filename, int mode)
 {
-	bAnimationGiven = animationSize > 0;
+	bAnimationGiven = totalPaps > 0;
 
 	boneMap = new int[mLength];
 	memcpy(boneMap, map, sizeof(int) * mLength);
@@ -165,33 +174,36 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 
 		if (bAnimationGiven)
 		{
+			int totalAnims = 0;
+			int currentAnim = 0;
+			for (auto i = 0; i < totalPaps; i++)
+				totalAnims += anims[i]->count;
+			numAnims = totalAnims;
+
+			animationNames = new char* [numAnims];
+			animations = new hkaAnimation* [numAnims];
+			bindings = new hkaAnimationBinding* [numAnims];
+			
+			for (int i = 0; i < totalPaps; i++)
 			{
-				auto istream = new hkIstream(animation, animationSize);
+				auto istream = new hkIstream(anims[i]->data, anims[i]->length);
 				hkRootLevelContainer* container = m_loader->load(istream->getStreamReader());
 				HK_ASSERT2(0x27343437, container != HK_NULL, "Could not load asset");
 				auto ac = reinterpret_cast<hkaAnimationContainer*>(container->findObjectByType(hkaAnimationContainerClass.getName()));
 
 				HK_ASSERT2(0x27343435, ac && (ac->m_animations.getSize() > 0), "No animation loaded");
-				numAnims = ac->m_animations.getSize();
-
-				animationNames = new char*[numAnims];
+				HK_ASSERT2(0x27343435, ac && (ac->m_bindings.getSize() > 0), "No binding loaded");
 				
-				animations = new hkaAnimation*[numAnims];
-				for (int i = 0 ; i < numAnims; i++)
+				for (int j = 0; j < ac->m_animations.getSize(); j++)
 				{
-					animations[i] = ac->m_animations[i];
+					animations[currentAnim] = ac->m_animations[j];
+					bindings[currentAnim] = ac->m_bindings[j];
 
 					// cpp strings are hard
-					animationNames[i] = new char[strlen(animNames[i]) * sizeof(char) + 1];
-					strncpy_s(animationNames[i], strlen(animNames[i]) * sizeof(char) + 1, animNames[i], _TRUNCATE);
+					animationNames[currentAnim] = new char[strlen(anims[i]->names[j]) * sizeof(char) + 1];
+					strncpy_s(animationNames[currentAnim], strlen(anims[i]->names[j]) * sizeof(char) + 1, anims[i]->names[j], _TRUNCATE);
+					currentAnim++;
 				}
-
-				HK_ASSERT2(0x27343435, ac && (ac->m_bindings.getSize() > 0), "No binding loaded");
-				numBindings = ac->m_bindings.getSize();
-				
-				bindings = new hkaAnimationBinding*[numBindings];
-				for (int i = 0; i < numBindings; i++)
-					bindings[i] = ac->m_bindings[i];
 			}
 		}
 	}
