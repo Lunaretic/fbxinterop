@@ -65,6 +65,7 @@
 #include <fbxsdk.h>
 #include "FBXCommon.h" // samples common path, todo better way
 #include "fbxInterop.h"
+#include <tuple>
 
 // FBX Function prototypes
 bool CreateScene(FbxManager* pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene); // create FBX scene
@@ -102,20 +103,18 @@ vector<float> vector4ToFloats(Vector4 v)
 	return arr;
 }
 
-class hkLoader* m_loader;
-class hkaSkeleton* m_skeleton;
-class hkaAnimation* m_animation;
-class hkaAnimationBinding* m_binding;
+hkLoader* m_loader;
+// hkaSkeleton* skeletons[0];
+hkaAnimation* m_animation;
+hkaAnimationBinding* m_binding;
 
-class hkaAnimation** animations;
-class hkaAnimationBinding** bindings;
+std::vector<hkaSkeleton*> skeletons;
+std::vector<hkaSkeletonMapper*> mappers;
+std::vector<hkaAnimation*> animations;
+std::vector<hkaAnimationBinding*> bindings;
+std::vector<std::string> animationNames;
 
 int numAnims;
-
-int* boneMap;
-int mapLength;
-
-char** animationNames;
 
 bool bAnimationGiven = false;
 
@@ -129,9 +128,19 @@ FBXINTEROP_API void unloadAnimation(Animation* a)
 	delete a;
 }
 
-FBXINTEROP_API Mesh* loadMesh(int index, Vertex* vertices, int numv, unsigned short* indices, int numi, unsigned short* iBoneList, int iBoneListSize)
+FBXINTEROP_API Skeleton* loadSkeleton(unsigned char* data, int length, short* connectBones)
 {
-	return new Mesh(index, vertices, numv, indices, numi, iBoneList, iBoneListSize);
+	return new Skeleton(data, length, connectBones);
+}
+
+FBXINTEROP_API void unloadSkeleton(Skeleton* s)
+{
+	delete s;
+}
+
+FBXINTEROP_API Mesh* loadMesh(int index, Vertex* vertices, int numv, unsigned short* indices, int numi, char** boneNames, int numBones)
+{
+	return new Mesh(index, vertices, numv, indices, numi, boneNames, numBones);
 }
 
 FBXINTEROP_API void unloadMesh(Mesh* m)
@@ -140,17 +149,12 @@ FBXINTEROP_API void unloadMesh(Mesh* m)
 }
 
 FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
-								unsigned char* skeleton, int skeletonSize,
+								Skeleton** skeles, int numSkeles,
 								Animation** anims, int totalPaps,
-								int* map, int mLength,
 								const char* filename, int mode)
 {
 	bAnimationGiven = totalPaps > 0;
-
-	boneMap = new int[mLength];
-	memcpy(boneMap, map, sizeof(int) * mLength);
-	mapLength = mLength;
-
+	
 	// Perform platform specific initialization for this demo - you should already have something similar in your own code.
 	PlatformInit();
 
@@ -160,29 +164,37 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 	{
 		// load skeleton first!
 		m_loader = new hkLoader();
+
+		skeletons = std::vector<hkaSkeleton*>(numSkeles);
+		mappers = std::vector<hkaSkeletonMapper*>();
+		for (int i = 0; i < numSkeles; i++)
 		{
-			auto istream = new hkIstream(skeleton, skeletonSize);
+			// auto istream = new hkIstream(skeleton, skeletonSize);
+			auto istream = new hkIstream(skeles[i]->data, skeles[i]->length);
 			hkRootLevelContainer* container = m_loader->load(istream->getStreamReader());
 			HK_ASSERT2(0x27343437, container != HK_NULL, "Could not load asset");
 			auto ac = reinterpret_cast<hkaAnimationContainer*>(container->findObjectByType(hkaAnimationContainerClass.getName()));
 
 			HK_ASSERT2(0x27343435, ac && (ac->m_skeletons.getSize() > 0), "No skeleton loaded");
-			m_skeleton = ac->m_skeletons[0];
-		}
+			skeletons[i] = ac->m_skeletons[0];
 
-		animationNames = nullptr;
+			if (mappers.empty())
+				mappers.push_back(reinterpret_cast<hkaSkeletonMapper*>(container->findObjectByName("1")));
+			
+			cout << "skeles " << std::to_string(i) << " has connect index 0 of " << std::to_string(skeles[i]->connectBones[0]) << std::endl;
+		}
 
 		if (bAnimationGiven)
 		{
 			int totalAnims = 0;
-			int currentAnim = 0;
 			for (auto i = 0; i < totalPaps; i++)
 				totalAnims += anims[i]->count;
 			numAnims = totalAnims;
 
-			animationNames = new char* [numAnims];
-			animations = new hkaAnimation* [numAnims];
-			bindings = new hkaAnimationBinding* [numAnims];
+			// stop using numanims later to fix anim bug
+			animationNames = std::vector<std::string>(numAnims);
+			animations = std::vector<hkaAnimation*>(numAnims);
+			bindings = std::vector<hkaAnimationBinding*>(numAnims);
 			
 			for (int i = 0; i < totalPaps; i++)
 			{
@@ -193,16 +205,13 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 
 				HK_ASSERT2(0x27343435, ac && (ac->m_animations.getSize() > 0), "No animation loaded");
 				HK_ASSERT2(0x27343435, ac && (ac->m_bindings.getSize() > 0), "No binding loaded");
-				
+
+				// flatten animations per-pap into the animations array with names
 				for (int j = 0; j < ac->m_animations.getSize(); j++)
 				{
-					animations[currentAnim] = ac->m_animations[j];
-					bindings[currentAnim] = ac->m_bindings[j];
-
-					// cpp strings are hard
-					animationNames[currentAnim] = new char[strlen(anims[i]->names[j]) * sizeof(char) + 1];
-					strncpy_s(animationNames[currentAnim], strlen(anims[i]->names[j]) * sizeof(char) + 1, anims[i]->names[j], _TRUNCATE);
-					currentAnim++;
+					animations[i + j] = ac->m_animations[j];
+					bindings[i + j] = ac->m_bindings[j];
+					animationNames[i + j] = anims[i]->names[j];
 				}
 			}
 		}
@@ -235,10 +244,6 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 		return 1;
 	}
 
-	//Cleanup
-	delete[] boneMap;
-	delete[] animationNames;
-
 	DestroySdkObjects(lSdkManager, lResult);
 
 	hkBaseSystem::quit();
@@ -251,14 +256,12 @@ bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene
 {
 	// create scene info
 	FbxDocumentInfo* sceneInfo = FbxDocumentInfo::Create(pSdkManager, "SceneInfo");
+	//todo: change this lol
 	sceneInfo->mTitle = "Extracted Havok Animation";
 	sceneInfo->mSubject = "A file extracted from FFXIV and converted from Havok formats to FBX using Godbert.";
 	sceneInfo->mAuthor = "Godbert";
 	sceneInfo->mRevision = "rev. 1.0";
 	sceneInfo->mKeywords = "havok animation ffxiv";
-
-	FbxAxisSystem directXAxisSys(FbxAxisSystem::EUpVector::eYAxis, FbxAxisSystem::EFrontVector::eParityEven, FbxAxisSystem::eRightHanded);
-	directXAxisSys.ConvertScene(pScene);
 
 	// we need to add the sceneInfo before calling AddThumbNailToScene because
 	// that function is asking the scene for the sceneInfo.
@@ -273,19 +276,29 @@ bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene
 	
 	for (int i = 0; i < meshCount; i++)
 	{
-		FbxNode* thisFbxMesh = CreateMesh(pSdkManager, pScene, meshes[i], std::string("Mesh ") + std::to_string(i));
+		FbxNode* thisFbxMesh = CreateMesh(pSdkManager, pScene, meshes[i], std::string("Mesh " + std::to_string(i)));
 		lRootNode->AddChild(thisFbxMesh);
 	
 		fbxMeshes[i] = thisFbxMesh;
 	}
 	
 	CreateSkin(pSdkManager, pScene, meshes, fbxMeshes, meshCount, lSkeletonRoot);
-
+	
 	// Animation only if specified
 	if (bAnimationGiven)
 		AnimateSkeleton(pScene, lSkeletonRoot);
 
-	delete[] fbxMeshes;
+	FbxAxisSystem directXAxisSys(FbxAxisSystem::EUpVector::eYAxis, FbxAxisSystem::EFrontVector::eParityEven, FbxAxisSystem::eRightHanded);
+	directXAxisSys.ConvertScene(pScene);
+
+	// for (int i = 0; i < pScene->GetNodeCount(); i++)
+	// {
+	// 	FbxNode* node = pScene->GetNode(i);
+	// 	std::string CurrentNodeName = node->GetName();
+	// 	node->SetName((CurrentNodeName + std::string("_noph3")).c_str());
+	// }
+	
+	// delete[] fbxMeshes;
 	return true;
 }
 
@@ -301,9 +314,11 @@ FbxNode* GetNodeIndexByName(FbxScene* pScene, std::string NodeName)
 		std::string CurrentNodeName = pScene->GetNode(i)->GetName();
 
 		if (CurrentNodeName == NodeName)
+		{
 			NodeToReturn = pScene->GetNode(i);
+			break;
+		}
 	}
-
 	return NodeToReturn;
 }
 
@@ -318,10 +333,21 @@ int GetNodeIDByName(FbxScene* pScene, std::string NodeName)
 		if (CurrentNodeName == NodeName)
 		{
 			NodeNumber = i;
+			break;
 		}
 	}
 
 	return NodeNumber;
+}
+
+int GetHavokBoneIDByName(std::string boneName)
+{
+	int havokId = 0;
+
+	// for (int i = 0; i < )
+
+	
+	return havokId;
 }
 
 FbxNode* CreateMesh(FbxManager *pSdkManager, FbxScene* pScene, Mesh* m, std::string name)
@@ -382,7 +408,6 @@ FbxNode* CreateMesh(FbxManager *pSdkManager, FbxScene* pScene, Mesh* m, std::str
 		// Tangents
 		tangentElement->GetDirectArray().Add(tangent1);
 		tangentElement->GetDirectArray().Add(tangent2);
-		
 	}
 
 	for (int i = 0; i < m->numIndices; i += 3)
@@ -403,7 +428,7 @@ FbxNode* CreateMesh(FbxManager *pSdkManager, FbxScene* pScene, Mesh* m, std::str
 void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** originalMeshes, FbxNode** meshes, int numMeshes, FbxNode* skele)
 {
 	FbxArray<FbxNode*> nodes;
-
+	
 	for (int j = 0; j < numMeshes; j++)
 	{
 		FbxMesh* thisMesh = reinterpret_cast<FbxMesh*>(meshes[j]->GetNodeAttributeByIndex(0));
@@ -414,59 +439,55 @@ void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** originalMeshes
 		skin->SetGeometry(thisMesh);
 		thisMesh->AddDeformer(skin);
 
-		for (int i = 0; i < mapLength; i++)
+		// for each bone in the scene
+		for (unsigned int s = 0; s < skeletons.size(); s++)
 		{
-			int map = boneMap[i];
-
-			std::string clusterName = std::string("Mesh ") + std::to_string(j) + std::string(m_skeleton->m_bones[map].m_name.cString()) + std::string(" cluster");
-			FbxCluster* thisMeshBoneCluster = FbxCluster::Create(pSdkManager, clusterName.c_str());
-			thisMeshBoneCluster->SetLinkMode(FbxCluster::ELinkMode::eNormalize);
-			thisMeshBoneCluster->SetLink(GetNodeIndexByName(pScene, m_skeleton->m_bones[map].m_name.cString()));
-			thisMeshBoneCluster->SetTransformLinkMatrix(GetNodeIndexByName(pScene, m_skeleton->m_bones[map].m_name.cString())->EvaluateGlobalTransform());
-
-			for (int k = 0; k < originalMeshes[j]->numVertices; k++)
+			for (int i = 0; i < skeletons[s]->m_bones.getSize(); i++)
 			{
-				auto blendIndices = uintToBytes(originalMeshes[j]->vertices[k].BlendIndices);
-				auto blendWeights = vector4ToFloats(originalMeshes[j]->vertices[k].BlendWeights);
+				std::string clusterName = std::string("Mesh ") + std::to_string(j) + std::string(skeletons[s]->m_bones[i].m_name.cString()) + std::string(" cluster");
 
-				for (unsigned int blendIndex = 0; blendIndex < blendIndices.size(); blendIndex++)
+				FbxCluster* thisMeshBoneCluster = FbxCluster::Create(pSdkManager, clusterName.c_str());
+				thisMeshBoneCluster->SetLinkMode(FbxCluster::ELinkMode::eNormalize);
+				thisMeshBoneCluster->SetLink(GetNodeIndexByName(pScene, skeletons[s]->m_bones[i].m_name.cString()));
+				thisMeshBoneCluster->SetTransformLinkMatrix(GetNodeIndexByName(pScene, skeletons[s]->m_bones[i].m_name.cString())->EvaluateGlobalTransform());
+
+				for (int k = 0; k < originalMeshes[j]->numVertices; k++)
 				{
-					// ensure the blend index is in line with the remapping for this mesh
-					int oldbi = blendIndices[blendIndex];
-					bool applies = false;
-					blendIndices[blendIndex] = originalMeshes[j]->boneList[blendIndices[blendIndex]];
+					auto blendIndices = uintToBytes(originalMeshes[j]->vertices[k].BlendIndices);
+					auto blendWeights = vector4ToFloats(originalMeshes[j]->vertices[k].BlendWeights);
 
-					if (oldbi != blendIndices[blendIndex])
+					for (unsigned int blendIndex = 0; blendIndex < blendIndices.size(); blendIndex++)
 					{
-						// swap again idek
-						blendIndices[blendIndex] = boneMap[blendIndices[blendIndex]];
+						// easier access to the mesh-specific bone ID we're working with
+						const int blend_bone_index = blendIndices[blendIndex];
 
-						// compare against map
-						applies = blendIndices[blendIndex] == map;
-					}
-					else
-					{
-						// compare against i
-						applies = blendIndices[blendIndex] == i;
-					}
+						// does this blend index apply to this bone?
+						bool applies = false;
+						std::string bone = originalMeshes[j]->boneList[blend_bone_index];
 
-					// make sure index has weight
-					if (blendWeights[blendIndex] != 0 && applies)
-						thisMeshBoneCluster->AddControlPointIndex(k, blendWeights[blendIndex]);
+						if (bone == skeletons[s]->m_bones[i].m_name.cString())
+							applies = true;
+
+						// make sure index has weight
+						if (blendWeights[blendIndex] != 0 && applies)
+							thisMeshBoneCluster->AddControlPointIndex(k, blendWeights[blendIndex]);
+					}
+				}
+
+				// Don't let this cluster deform this skin if we haven't added any indices.
+				// If we add it, it can't differentiate indices between meshes, and affects
+				// all control point indices on all meshes as if they were the ones set.
+				// does this even work lol
+				if (thisMeshBoneCluster->GetControlPointIndicesCount() > 0)
+				{
+					skin->AddCluster(thisMeshBoneCluster);
+					nodes.Add(thisMeshBoneCluster->GetLink());
 				}
 			}
-			// Don't let this cluster deform this skin if we haven't added any indices.
-			// If we add it, it can't differentiate indices between meshes, and affects
-			// all control point indices on all meshes as if they were the ones set.
-			// does this even work lol
-			if (thisMeshBoneCluster->GetControlPointIndicesCount() > 0)
-			{
-				skin->AddCluster(thisMeshBoneCluster);
-				nodes.Add(thisMeshBoneCluster->GetLink());
-			}
 		}
+		
+		
 	}
-
 
 	// Dunno if this much bind pose management is necessary
 	FbxPose* pose = pScene->GetPose(0);
@@ -483,62 +504,67 @@ void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** originalMeshes
 // Create the skeleton first
 FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* pName)
 {
-	// get number of bones and apply reference pose
-	const int numBones = m_skeleton->m_bones.getSize();
-
 	FbxArray<FbxNode*> nodes;
 
-	// create base limb objects first
-	for (hkInt16 b = 0; b < numBones; b++)
+	//TODO  MULTIPLE SKELETONS
+
+	for (hkaSkeleton* skeleton : skeletons)
 	{
-		const hkaBone& bone = m_skeleton->m_bones[b];
-
-		hkQsTransform localTransform = m_skeleton->m_referencePose[b];
-		const hkVector4& pos = localTransform.getTranslation();
-		const hkQuaternion& rot = localTransform.getRotation();
-
-		FbxSkeleton* lSkeletonLimbNodeAttribute1 = FbxSkeleton::Create(pScene, pName);
-
-		if (b == 0)
-			lSkeletonLimbNodeAttribute1->SetSkeletonType(FbxSkeleton::eRoot);
-		else
-			lSkeletonLimbNodeAttribute1->SetSkeletonType(FbxSkeleton::eLimbNode);
-
-		lSkeletonLimbNodeAttribute1->Size.Set(1.0);
-		std::string baseJointName = std::string(bone.m_name);
-		FbxNode* BaseJoint = FbxNode::Create(pScene, baseJointName.c_str());
-		BaseJoint->SetNodeAttribute(lSkeletonLimbNodeAttribute1);
-
-		// Set Translation
-		BaseJoint->LclTranslation.Set(FbxVector4(pos.getSimdAt(0), pos.getSimdAt(1), pos.getSimdAt(2)));
-
-		// convert quat to euler
-		Quat QuatTest = { rot.m_vec.getSimdAt(0), rot.m_vec.getSimdAt(1), rot.m_vec.getSimdAt(2), rot.m_vec.getSimdAt(3) };
-		EulerAngles inAngs = Eul_FromQuat(QuatTest, EulOrdXYZs);
-		BaseJoint->LclRotation.Set(FbxVector4(rad2deg(inAngs.x), rad2deg(inAngs.y), rad2deg(inAngs.z)));
-
-		nodes.Add(BaseJoint);
-		pScene->GetRootNode()->AddChild(BaseJoint);
-	}
-
-	// process parenting and transform now
-	for (int c = 0; c < numBones; c++)
-	{
-		const hkInt32& parent = m_skeleton->m_parentIndices[c];
-
-		if (parent != -1)
+		// get number of bones and apply reference pose
+		const int numBones = skeleton->m_bones.getSize();
+		
+		// create base limb objects first
+		for (hkInt16 b = 0; b < numBones; b++)
 		{
-			const char* ParentBoneName = m_skeleton->m_bones[parent].m_name;
-			const char* CurrentBoneName = m_skeleton->m_bones[c].m_name;
-			std::string CurBoneNameString = CurrentBoneName;
-			std::string ParentBoneNameString = ParentBoneName;
+			const hkaBone& bone = skeleton->m_bones[b];
 
-			FbxNode* ParentJointNode = GetNodeIndexByName(pScene, ParentBoneName);
-			FbxNode* CurrentJointNode = GetNodeIndexByName(pScene, CurrentBoneName);
-			ParentJointNode->AddChild(CurrentJointNode);
+			hkQsTransform localTransform = skeleton->m_referencePose[b];
+			const hkVector4& pos = localTransform.getTranslation();
+			const hkQuaternion& rot = localTransform.getRotation();
+
+			FbxSkeleton* lSkeletonLimbNodeAttribute1 = FbxSkeleton::Create(pScene, pName);
+
+			if (b == 0)
+				lSkeletonLimbNodeAttribute1->SetSkeletonType(FbxSkeleton::eRoot);
+			else
+				lSkeletonLimbNodeAttribute1->SetSkeletonType(FbxSkeleton::eLimbNode);
+
+			lSkeletonLimbNodeAttribute1->Size.Set(1.0);
+			std::string baseJointName = std::string(bone.m_name);
+			FbxNode* BaseJoint = FbxNode::Create(pScene, baseJointName.c_str());
+			BaseJoint->SetNodeAttribute(lSkeletonLimbNodeAttribute1);
+
+			// Set Translation
+			BaseJoint->LclTranslation.Set(FbxVector4(pos.getSimdAt(0), pos.getSimdAt(1), pos.getSimdAt(2)));
+
+			// convert quat to euler
+			Quat QuatTest = { rot.m_vec.getSimdAt(0), rot.m_vec.getSimdAt(1), rot.m_vec.getSimdAt(2), rot.m_vec.getSimdAt(3) };
+			EulerAngles inAngs = Eul_FromQuat(QuatTest, EulOrdXYZs);
+			BaseJoint->LclRotation.Set(FbxVector4(rad2deg(inAngs.x), rad2deg(inAngs.y), rad2deg(inAngs.z)));
+
+			nodes.Add(BaseJoint);
+			pScene->GetRootNode()->AddChild(BaseJoint);
+		}
+
+		// process parenting and transform now
+		for (int c = 0; c < numBones; c++)
+		{
+			const hkInt32& parent = skeleton->m_parentIndices[c];
+
+			if (parent != -1)
+			{
+				const char* ParentBoneName = skeleton->m_bones[parent].m_name;
+				const char* CurrentBoneName = skeleton->m_bones[c].m_name;
+				std::string CurBoneNameString = CurrentBoneName;
+				std::string ParentBoneNameString = ParentBoneName;
+
+				FbxNode* ParentJointNode = GetNodeIndexByName(pScene, ParentBoneName);
+				FbxNode* CurrentJointNode = GetNodeIndexByName(pScene, CurrentBoneName);
+				ParentJointNode->AddChild(CurrentJointNode);
+			}
 		}
 	}
-
+	
 	// set bind post stuff
 	FbxPose* pose = FbxPose::Create(pSdkManager, "Bindpose");
 	pose->SetIsBindPose(true);
@@ -565,7 +591,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		FbxTime lTime;
 		int lKeyIndex = 0;
 
-		lAnimStackName = animationNames[a];
+		lAnimStackName = animationNames[a].c_str();
 		FbxAnimStack* lAnimStack = FbxAnimStack::Create(pScene, lAnimStackName);
 
 		// The animation nodes can only exist on AnimLayers therefore it is mandatory to
@@ -575,7 +601,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		lAnimStack->AddMember(lAnimLayer);
 
 		// havok related animation stuff now
-		const int numBones = m_skeleton->m_bones.getSize();
+		const int numBones = skeletons[0]->m_bones.getSize();
 
 		int FrameNumber = animations[a]->getNumOriginalFrames();
 		int TrackNumber = animations[a]->m_numberOfTransformTracks;
@@ -603,14 +629,16 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		// store IDs once to cut down process time
 		for (int y = 0; y < numBones; y++)
 		{
-			const char* CurrentBoneName = m_skeleton->m_bones[y].m_name;
+			const char* CurrentBoneName = skeletons[0]->m_bones[y].m_name;
 			std::string CurBoneNameString = CurrentBoneName;
 			BoneIDContainer[y] = GetNodeIDByName(pScene, CurrentBoneName);
 		}
 
 		//hmm
-		hkaAnimatedSkeleton* animatedSkeleton = new hkaAnimatedSkeleton(m_skeleton);
-		hkaAnimationControl* control = new hkaDefaultAnimationControl(bindings[a]);
+		hkaAnimatedSkeleton* animatedSkeleton = new hkaAnimatedSkeleton(skeletons[0]);
+		hkaDefaultAnimationControl* control = new hkaDefaultAnimationControl(bindings[a]);
+		if (!mappers.empty())
+			control->setSkeletonMapper(mappers[0]);
 		animatedSkeleton->addAnimationControl(control);
 
 		hkaPose pose(animatedSkeleton->getSkeleton());

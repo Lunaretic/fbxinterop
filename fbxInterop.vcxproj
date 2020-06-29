@@ -16,6 +16,7 @@
     <ClCompile Include="Core\export.cpp" />
     <ClCompile Include="Core\Mesh.cpp" />
     <ClCompile Include="Core\stdafx.cpp" />
+    <ClCompile Include="Skeleton.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Core\Animation.h" />
@@ -29,6 +30,7 @@
     <ClInclude Include="Core\Transform.h" />
     <ClInclude Include="Core\Vector4.h" />
     <ClInclude Include="Core\Vertex.h" />
+    <ClInclude Include="Skeleton.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{ABD56143-77DF-4438-BA81-5D72B33FA715}</ProjectGuid>
@@ -84,6 +86,10 @@
       <AdditionalLibraryDirectories>$(HAVOK_SDK_ROOT)/Lib/win32_vs2012_win7_noSimd/debug;$(FBX_SDK_ROOT)/lib\vs2012\x86\debug;C:\Program Files (x86)\Microsoft Visual Studio 11.0\VC\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>hkBase.lib;hkSerialize.lib;hkSceneData.lib;hkVisualize.lib;hkInternal.lib;hkImageUtilities.lib;hkaAnimation.lib;hkaInternal.lib;hkaPhysics2012Bridge.lib;hkcdCollide.lib;hkcdInternal.lib;hkGeometryUtilities.lib;hkCompat.lib;libfbxsdk.lib</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy $(TargetDir)fbxInterop.dll C:\Users\Liam\Documents\repos\Nophica\bin\Debug\
+copy $(TargetDir)fbxInterop.pdb C:\Users\Liam\Documents\repos\Nophica\bin\Debug\</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
