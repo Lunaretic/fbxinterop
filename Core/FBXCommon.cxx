@@ -52,36 +52,13 @@ void DestroySdkObjects(FbxManager* pManager, bool pExitStatus)
 	if( pExitStatus ) FBXSDK_printf("Exit interop complete\n");
 }
 
-bool SaveScene(FbxManager* pManager, FbxDocument* pScene, const char* pFilename, int pFileFormat, bool pEmbedMedia)
+bool SaveScene(FbxManager* pManager, FbxDocument* pScene, const char* pFilename, bool pEmbedMedia)
 {
     int lMajor, lMinor, lRevision;
     bool lStatus = true;
 
     // Create an exporter.
     FbxExporter* lExporter = FbxExporter::Create(pManager, "");
-
-    if( pFileFormat < 0 || pFileFormat >= pManager->GetIOPluginRegistry()->GetWriterFormatCount() )
-    {
-        // Write in fall back format in less no ASCII format found
-        pFileFormat = pManager->GetIOPluginRegistry()->GetNativeWriterFormat();
-
-        //Try to export in ASCII if possible
-        int lFormatIndex, lFormatCount = pManager->GetIOPluginRegistry()->GetWriterFormatCount();
-
-        for (lFormatIndex=0; lFormatIndex<lFormatCount; lFormatIndex++)
-        {
-            if (pManager->GetIOPluginRegistry()->WriterIsFBX(lFormatIndex))
-            {
-                FbxString lDesc =pManager->GetIOPluginRegistry()->GetWriterFormatDescription(lFormatIndex);
-                const char *lASCII = "ascii";
-                if (lDesc.Find(lASCII)>=0)
-                {
-                    pFileFormat = lFormatIndex;
-                    break;
-                }
-            }
-        } 
-    }
 
     // Set the export states. By default, the export states are always set to 
     // true except for the option eEXPORT_TEXTURE_AS_EMBEDDED. The code below 
@@ -95,7 +72,7 @@ bool SaveScene(FbxManager* pManager, FbxDocument* pScene, const char* pFilename,
     IOS_REF.SetBoolProp(EXP_FBX_GLOBAL_SETTINGS, true);
 
     // Initialize the exporter by providing a filename.
-    if(lExporter->Initialize(pFilename, pFileFormat, pManager->GetIOSettings()) == false)
+    if(lExporter->Initialize(pFilename, -1, pManager->GetIOSettings()) == false)
     {
         FBXSDK_printf("Call to FbxExporter::Initialize() failed.\n");
         FBXSDK_printf("Error returned: %s\n\n", lExporter->GetStatus().GetErrorString());

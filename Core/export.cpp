@@ -67,11 +67,11 @@
 #include "fbxInterop.h"
 
 // FBX Function prototypes
-bool CreateScene(FbxManager* pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene); // create FBX scene
+bool CreateScene(FbxManager* pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene, int mode = 0); // create FBX scene
 FbxNode* CreateMesh(FbxManager* pSdkManager, FbxScene* pScene, Mesh* m, std::string);
 void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** meshes, FbxNode** fbxMeshes, int meshCount, FbxNode* skele);
 FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* pName); // create the actual skeleton
-void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot); // add animation to it
+void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimations = false); // add animation to it
 vector<unsigned char> uintToBytes(unsigned int u);
 
 void PlatformInit();
@@ -215,7 +215,7 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 	InitializeSdkObjects(lSdkManager, lScene);
 
 	// Create the scene.
-	bool lResult = CreateScene(lSdkManager, meshes, numMeshes, lScene);
+	bool lResult = CreateScene(lSdkManager, meshes, numMeshes, lScene, mode);
 
 	if (!lResult)
 	{
@@ -226,7 +226,7 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 
 	// Save the scene to FBX.
 	// 0 is binary
-	lResult = SaveScene(lSdkManager, lScene, filename, mode);
+	lResult = SaveScene(lSdkManager, lScene, filename);
 
 	if (!lResult)
 	{
@@ -247,7 +247,7 @@ FBXINTEROP_API int exportFbx(Mesh** meshes, int numMeshes,
 	return 0;
 }
 
-bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene)
+bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene* pScene, int mode)
 {
 	// create scene info
 	FbxDocumentInfo* sceneInfo = FbxDocumentInfo::Create(pSdkManager, "SceneInfo");
@@ -292,9 +292,11 @@ bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene
 	
 	CreateSkin(pSdkManager, pScene, meshes, fbxMeshes, meshCount, lSkeletonRoot);
 
+	bool mergeAnimations = mode != 0;
+
 	// Animation only if specified
 	if (bAnimationGiven)
-		AnimateSkeleton(pScene, lSkeletonRoot);
+		AnimateSkeleton(pScene, lSkeletonRoot, mergeAnimations);
 
 	delete[] fbxMeshes;
 	return true;
@@ -569,22 +571,32 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 }
 
 // Create animation stack.
-void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
+void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimations)
 {
+	FbxAnimStack* lAnimStack = NULL;
+	FbxAnimLayer* lAnimLayer = NULL;
+	FbxTime lTime;
+	int timeStart = 0;
 	for (int a = 0; a < numAnims; a++)
 	{
 		FbxString lAnimStackName;
-		FbxTime lTime;
 		int lKeyIndex = 0;
 
-		lAnimStackName = animationNames[a];
-		FbxAnimStack* lAnimStack = FbxAnimStack::Create(pScene, lAnimStackName);
+		if (!mergeAnimations) {
+			lAnimStackName = animationNames[a];
+			lAnimStack = FbxAnimStack::Create(pScene, lAnimStackName);
+			lAnimLayer = FbxAnimLayer::Create(pScene, "Base Layer");
+			lAnimStack->AddMember(lAnimLayer);
+		}
+		else {
+			// IF we're merging the animations, only allow us to generate a single stack.
+			if (lAnimStack == NULL) {
+				lAnimStack = FbxAnimStack::Create(pScene, "Merged Animation Layer");
+				lAnimLayer = FbxAnimLayer::Create(pScene, "Anim Layer");
+				lAnimStack->AddMember(lAnimLayer);
+			}
+		}
 
-		// The animation nodes can only exist on AnimLayers therefore it is mandatory to
-		// add at least one AnimLayer to the AnimStack. And for the purpose of this example,
-		// one layer is all we need.
-		FbxAnimLayer* lAnimLayer = FbxAnimLayer::Create(pScene, "Base Layer");
-		lAnimStack->AddMember(lAnimLayer);
 
 		// havok related animation stuff now
 		const int numBones = m_skeleton->m_bones.getSize();
@@ -628,8 +640,13 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 		hkaPose pose(animatedSkeleton->getSkeleton());
 
 		// loop through keyframes
+		int lastFrame = 0;
 		for (int iFrame = 0; iFrame<FrameNumber; ++iFrame, time += incrFrame)
 		{
+			if (iFrame > lastFrame) {
+				lastFrame = iFrame;
+			}
+
 			control->setLocalTime(time);
 			animatedSkeleton->sampleAndCombineAnimations(pose.accessUnsyncedPoseModelSpace().begin(), pose.getFloatSlotValues().begin());
 			const hkQsTransform* transforms = pose.getSyncedPoseModelSpace().begin();
@@ -663,7 +680,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 				const hkVector4f anim_scal = transform.getScale();
 
 				//30 fps
-				lTime.SetTime(0, 0, 0, iFrame, 0, 0, lTime.eFrames30);
+				lTime.SetTime(0, 0, 0, iFrame + timeStart, 0, 0, lTime.eFrames30);
 
 				FbxAnimCurveDef::EInterpolationType anim_curve_def = FbxAnimCurveDef::eInterpolationConstant;
 
@@ -727,6 +744,14 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot)
 				lCurve_Scal_Z->KeySetInterpolation(lKeyIndex, anim_curve_def);
 				lCurve_Scal_Z->KeyModifyEnd();
 			}
+		}
+
+		if (!mergeAnimations) {
+			// If we're not merging, reset time back to 0.
+			timeStart = 0;
+		}
+		else {
+			timeStart = lastFrame + timeStart;
 		}
 	}
 }
