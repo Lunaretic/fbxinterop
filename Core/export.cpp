@@ -261,16 +261,24 @@ bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene
 	directXAxisSys.ConvertScene(pScene);
 
 	// FFXIV files come out in meters.
-	pScene->GetGlobalSettings().SetSystemUnit(FbxSystemUnit::m);
+	//pScene->GetGlobalSettings().SetSystemUnit(FbxSystemUnit::m);
+	auto unit = FbxSystemUnit(100);
+	pScene->GetGlobalSettings().SetSystemUnit(unit);
 
 	// we need to add the sceneInfo before calling AddThumbNailToScene because
 	// that function is asking the scene for the sceneInfo.
 	pScene->SetSceneInfo(sceneInfo);
+
+	auto lRootNode = FbxNode::Create(pScene, "scaling_root");
+	//lRootNode = pScene->GetRootNode();
+	pScene->GetRootNode()->AddChild(lRootNode);
+
 	FbxNode* lSkeletonRoot = CreateSkeleton(pSdkManager, pScene, "Skeleton");
 	
 	// Build the node tree.
-	FbxNode* lRootNode = pScene->GetRootNode();
-	lRootNode->AddChild(lSkeletonRoot);
+	//lRootNode->AddChild(lSkeletonRoot);
+
+
 
 	auto fbxMeshes = new FbxNode*[meshCount];
 	
@@ -413,7 +421,7 @@ void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** originalMeshes
 		nodes.Add(thisMesh->GetNode());
 
 		FbxSkin* skin = FbxSkin::Create(pSdkManager, std::string("Mesh " + std::to_string(j) + " skin").c_str());
-		skin->SetSkinningType(FbxSkin::eBlend);
+		//skin->SetSkinningType(FbxSkin::eBlend);
 		skin->SetGeometry(thisMesh);
 		thisMesh->AddDeformer(skin);
 
@@ -490,6 +498,7 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 	const int numBones = m_skeleton->m_bones.getSize();
 
 	FbxArray<FbxNode*> nodes;
+	auto lRoot = pScene->GetRootNode()->GetChild(0);
 
 	// create base limb objects first
 	for (hkInt16 b = 0; b < numBones; b++)
@@ -521,7 +530,7 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 		BaseJoint->LclRotation.Set(FbxVector4(rad2deg(inAngs.x), rad2deg(inAngs.y), rad2deg(inAngs.z)));
 
 		nodes.Add(BaseJoint);
-		pScene->GetRootNode()->AddChild(BaseJoint);
+		lRoot->AddChild(BaseJoint);
 	}
 
 	// process parenting and transform now
@@ -556,7 +565,7 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 	
 	pScene->AddPose(pose);
 
-	return pScene->GetRootNode();
+	return lRoot;
 }
 
 // Create animation stack.
