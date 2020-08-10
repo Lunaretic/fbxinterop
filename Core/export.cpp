@@ -257,8 +257,11 @@ bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene
 	sceneInfo->mRevision = "rev. 1.0";
 	sceneInfo->mKeywords = "havok animation ffxiv";
 
-	FbxAxisSystem directXAxisSys(FbxAxisSystem::EUpVector::eYAxis, FbxAxisSystem::EFrontVector::eParityEven, FbxAxisSystem::eRightHanded);
+	FbxAxisSystem directXAxisSys(FbxAxisSystem::EUpVector::eYAxis, FbxAxisSystem::EFrontVector::eParityOdd, FbxAxisSystem::eRightHanded);
 	directXAxisSys.ConvertScene(pScene);
+
+	// FFXIV files come out in meters.
+	pScene->GetGlobalSettings().SetSystemUnit(FbxSystemUnit::m);
 
 	// we need to add the sceneInfo before calling AddThumbNailToScene because
 	// that function is asking the scene for the sceneInfo.
