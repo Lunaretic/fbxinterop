@@ -71,7 +71,7 @@ bool CreateScene(FbxManager* pSdkManager, Mesh** meshes, int meshCount, FbxScene
 FbxNode* CreateMesh(FbxManager* pSdkManager, FbxScene* pScene, Mesh* m, std::string);
 void CreateSkin(FbxManager* pSdkManager, FbxScene* pScene, Mesh** meshes, FbxNode** fbxMeshes, int meshCount, FbxNode* skele);
 FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* pName); // create the actual skeleton
-void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimations = false); // add animation to it
+void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, int animationFlags = 0); // add animation to it
 vector<unsigned char> uintToBytes(unsigned int u);
 
 void PlatformInit();
@@ -292,11 +292,10 @@ bool CreateScene(FbxManager *pSdkManager, Mesh** meshes, int meshCount, FbxScene
 	
 	CreateSkin(pSdkManager, pScene, meshes, fbxMeshes, meshCount, lSkeletonRoot);
 
-	bool mergeAnimations = mode != 0;
 
 	// Animation only if specified
 	if (bAnimationGiven)
-		AnimateSkeleton(pScene, lSkeletonRoot, mergeAnimations);
+		AnimateSkeleton(pScene, lSkeletonRoot, mode);
 
 	delete[] fbxMeshes;
 	return true;
@@ -571,12 +570,33 @@ FbxNode* CreateSkeleton(FbxManager* pSdkManager, FbxScene* pScene, const char* p
 }
 
 // Create animation stack.
-void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimations)
+void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, int animationFlags)
 {
 	FbxAnimStack* lAnimStack = NULL;
 	FbxAnimLayer* lAnimLayer = NULL;
 	FbxTime lTime;
 	int timeStart = 0;
+
+	bool mergeAnimations = (animationFlags & 1) > 0;
+	bool includeApose = (animationFlags & 2) > 0;
+
+	if (includeApose) {
+		timeStart = 1;
+	}
+	
+	const int numBones = m_skeleton->m_bones.getSize();
+	// used to store the bone id used inside the FBX scene file
+	int* BoneIDContainer;
+	BoneIDContainer = new int[numBones];
+
+	// store IDs once to cut down process time
+	for (int y = 0; y < numBones; y++)
+	{
+		const char* CurrentBoneName = m_skeleton->m_bones[y].m_name;
+		std::string CurBoneNameString = CurrentBoneName;
+		BoneIDContainer[y] = GetNodeIDByName(pScene, CurrentBoneName);
+	}
+
 	for (int a = 0; a < numAnims; a++)
 	{
 		FbxString lAnimStackName;
@@ -599,7 +619,6 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimati
 
 
 		// havok related animation stuff now
-		const int numBones = m_skeleton->m_bones.getSize();
 
 		int FrameNumber = animations[a]->getNumOriginalFrames();
 		int TrackNumber = animations[a]->m_numberOfTransformTracks;
@@ -619,18 +638,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimati
 		for (int i = 0; i<TrackNumber; ++i) tracks[i] = i;
 
 		hkReal time = startTime;
-	
-		// used to store the bone id used inside the FBX scene file
-		int* BoneIDContainer;
-		BoneIDContainer = new int[numBones];
 
-		// store IDs once to cut down process time
-		for (int y = 0; y < numBones; y++)
-		{
-			const char* CurrentBoneName = m_skeleton->m_bones[y].m_name;
-			std::string CurBoneNameString = CurrentBoneName;
-			BoneIDContainer[y] = GetNodeIDByName(pScene, CurrentBoneName);
-		}
 
 		//hmm
 		hkaAnimatedSkeleton* animatedSkeleton = new hkaAnimatedSkeleton(m_skeleton);
@@ -658,7 +666,7 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimati
 				FbxNode* CurrentJointNode = pScene->GetNode(BoneIDContainer[i]);
 
 				// create curves on frame zero otherwise just get them
-				const bool pCreate = iFrame == 0;
+				bool pCreate = iFrame == 0;
 
 				// Translation
 				FbxAnimCurve* lCurve_Trans_X = CurrentJointNode->LclTranslation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_X, pCreate);
@@ -747,11 +755,110 @@ void AnimateSkeleton(FbxScene* pScene, FbxNode* pSkeletonRoot, bool mergeAnimati
 		}
 
 		if (!mergeAnimations) {
-			// If we're not merging, reset time back to 0.
-			timeStart = 0;
+			// If we're not merging, reset time back to 1.
+			if (includeApose) {
+				timeStart = 1;
+			}
+			else {
+				timeStart = 0;
+			}
 		}
 		else {
 			timeStart = lastFrame + timeStart;
+		}
+	}
+
+
+	// If we're including APose on frame 0, we need to include that now.
+	if (includeApose) {
+
+		for (int i = 0; i < numBones; ++i)
+		{
+
+			FbxNode* CurrentJointNode = pScene->GetNode(BoneIDContainer[i]);
+			bool pCreate = true;
+			int lKeyIndex = 0;
+
+			// Translation
+			FbxAnimCurve* lCurve_Trans_X = CurrentJointNode->LclTranslation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_X, pCreate);
+			FbxAnimCurve* lCurve_Trans_Y = CurrentJointNode->LclTranslation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Y, pCreate);
+			FbxAnimCurve* lCurve_Trans_Z = CurrentJointNode->LclTranslation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Z, pCreate);
+
+			// Rotation
+			FbxAnimCurve* lCurve_Rot_X = CurrentJointNode->LclRotation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_X, pCreate);
+			FbxAnimCurve* lCurve_Rot_Y = CurrentJointNode->LclRotation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Y, pCreate);
+			FbxAnimCurve* lCurve_Rot_Z = CurrentJointNode->LclRotation.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Z, pCreate);
+
+			FbxAnimCurve* lCurve_Scal_X = CurrentJointNode->LclScaling.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_X, pCreate);
+			FbxAnimCurve* lCurve_Scal_Y = CurrentJointNode->LclScaling.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Y, pCreate);
+			FbxAnimCurve* lCurve_Scal_Z = CurrentJointNode->LclScaling.GetCurve(lAnimLayer, FBXSDK_CURVENODE_COMPONENT_Z, pCreate);
+
+
+			//30 fps
+			lTime.SetTime(0, 0, 0, 0, 0, 0, lTime.eFrames30);
+
+			FbxAnimCurveDef::EInterpolationType anim_curve_def = FbxAnimCurveDef::eInterpolationConstant;
+
+			auto translation = CurrentJointNode->LclTranslation.Get();
+			auto scale = CurrentJointNode->LclScaling.Get();
+			auto rotation = CurrentJointNode->LclRotation.Get();
+
+			// Translation first
+			lCurve_Trans_X->KeyModifyBegin();
+			lKeyIndex = lCurve_Trans_X->KeyAdd(lTime);
+			lCurve_Trans_X->KeySetValue(lKeyIndex, translation[0]);
+			lCurve_Trans_X->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Trans_X->KeyModifyEnd();
+
+			lCurve_Trans_Y->KeyModifyBegin();
+			lKeyIndex = lCurve_Trans_Y->KeyAdd(lTime);
+			lCurve_Trans_Y->KeySetValue(lKeyIndex, translation[1]);
+			lCurve_Trans_Y->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Trans_Y->KeyModifyEnd();
+
+			lCurve_Trans_Z->KeyModifyBegin();
+			lKeyIndex = lCurve_Trans_Z->KeyAdd(lTime);
+			lCurve_Trans_Z->KeySetValue(lKeyIndex, translation[2]);
+			lCurve_Trans_Z->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Trans_Z->KeyModifyEnd();
+
+			// Rotation
+			lCurve_Rot_X->KeyModifyBegin();
+			lKeyIndex = lCurve_Rot_X->KeyAdd(lTime);
+			lCurve_Rot_X->KeySetValue(lKeyIndex, rotation[0]);
+			lCurve_Rot_X->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Rot_X->KeyModifyEnd();
+
+			lCurve_Rot_Y->KeyModifyBegin();
+			lKeyIndex = lCurve_Rot_Y->KeyAdd(lTime);
+			lCurve_Rot_Y->KeySetValue(lKeyIndex, rotation[1]);
+			lCurve_Rot_Y->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Rot_Y->KeyModifyEnd();
+
+			lCurve_Rot_Z->KeyModifyBegin();
+			lKeyIndex = lCurve_Rot_Z->KeyAdd(lTime);
+			lCurve_Rot_Z->KeySetValue(lKeyIndex, rotation[2]);
+			lCurve_Rot_Z->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Rot_Z->KeyModifyEnd();
+
+			// Scale
+			lCurve_Scal_X->KeyModifyBegin();
+			lKeyIndex = lCurve_Scal_X->KeyAdd(lTime);
+			lCurve_Scal_X->KeySetValue(lKeyIndex, scale[0]);
+			lCurve_Scal_X->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Scal_X->KeyModifyEnd();
+
+			lCurve_Scal_Y->KeyModifyBegin();
+			lKeyIndex = lCurve_Scal_Y->KeyAdd(lTime);
+			lCurve_Scal_Y->KeySetValue(lKeyIndex, scale[1]);
+			lCurve_Scal_Y->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Scal_Y->KeyModifyEnd();
+
+			lCurve_Scal_Z->KeyModifyBegin();
+			lKeyIndex = lCurve_Scal_Z->KeyAdd(lTime);
+			lCurve_Scal_Z->KeySetValue(lKeyIndex, scale[2]);
+			lCurve_Scal_Z->KeySetInterpolation(lKeyIndex, anim_curve_def);
+			lCurve_Scal_Z->KeyModifyEnd();
 		}
 	}
 }
